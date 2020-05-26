@@ -5,6 +5,7 @@ import os
 import sys
 import functools
 import re
+import pickle
 
 
 def match_residues(row):
@@ -63,9 +64,6 @@ def match_residues(row):
 
     # to not alter in loop
     allocated_copy = allocated.copy()
-
-    if "NUDT5A-x1857" in row["crystal_id"]:
-        print(allocated)
 
     # residues that match up those that match by ligand
     for residue in unallocated_nearby_residue:
@@ -148,10 +146,6 @@ def split_residue_info_chain(x, side_of_and):
     side_of_and = 0 if side_of_and == "left" else 1
 
     if pd.notnull(x):
-
-        if 'val' in x.lower():
-            print(x)
-
         if "and" in x:
             return x.split("and")[side_of_and].split(" ")[side_of_and + 1]
         elif x == " ":
@@ -293,7 +287,7 @@ def res_to_selection(res_tuple):
     #return "(chain " + res_chain + " and name " + res_name + " and resid " + str(int(res_num)) + ")"
 
 
-def allocated_res_to_sel(allocated):
+def residue_list_to_selection(allocated):
     "Iotbx selection string based on itreable of residue objects"
     sel_list = []
     for residue_tuple in allocated:
@@ -302,12 +296,64 @@ def allocated_res_to_sel(allocated):
     #return sel_list[0]
     return ' or '.join(sel_list)
 
+def allocated_occ_b_from_row(row):
+
+    allocated_1_occ_b_df = occ_b_from_residues(row['allocated_1'], row['refine_pdb'])
+    if allocated_1_occ_b_df is not None:
+        allocated_1_mean = allocated_1_occ_b_df['B_factor'].mean()
+        allocated_1_std_dev = allocated_1_occ_b_df['B_factor'].std()
+    else:
+        allocated_1_mean = None
+        allocated_1_std_dev = None
+
+    allocated_2_occ_b_df = occ_b_from_residues(row['allocated_2'], row['refine_pdb'])
+    if allocated_2_occ_b_df is not None:
+        allocated_2_mean = allocated_2_occ_b_df['B_factor'].mean()
+        allocated_2_std_dev = allocated_2_occ_b_df['B_factor'].std()
+    else:
+        allocated_2_mean = None
+        allocated_2_std_dev = None
+
+    allocated_3_occ_b_df = occ_b_from_residues(row['allocated_3'], row['refine_pdb'])
+    if allocated_3_occ_b_df is not None:
+        allocated_3_mean = allocated_3_occ_b_df['B_factor'].mean()
+        allocated_3_std_dev = allocated_3_occ_b_df['B_factor'].std()
+    else:
+        allocated_3_mean = None
+        allocated_3_std_dev = None
+
+    allocated_4_occ_b_df = occ_b_from_residues(row['allocated_4'], row['refine_pdb'])
+    if allocated_4_occ_b_df is not None:
+        allocated_4_mean = allocated_4_occ_b_df['B_factor'].mean()
+        allocated_4_std_dev = allocated_4_occ_b_df['B_factor'].std()
+    else:
+        allocated_4_mean = None
+        allocated_4_std_dev = None
+
+    return pd.Series((allocated_1_occ_b_df, allocated_1_mean, allocated_1_std_dev,
+                     allocated_2_occ_b_df, allocated_2_mean, allocated_2_std_dev,
+                     allocated_3_occ_b_df, allocated_3_mean, allocated_3_std_dev,
+                     allocated_4_occ_b_df, allocated_4_mean, allocated_4_std_dev))
+
+def occ_b_from_residues(allocated_list, pdb_path):
+    """From list of tuple of residues given occupancy B value df"""
+    if allocated_list is None:
+        return None
+    selection_list = residue_list_to_selection(allocated_list)
+    return read_occupancy_b(pdb_path, selection_list)
+
+
 
 if __name__ == "__main__":
 
     nudt5_master_tidied_path = (
         "/dls/science/groups/i04-1/elliot-dev/"
         "NUDT5_occupancy/NUDT5_master_tidied_modified.csv"
+    )
+
+    pickle_path = (
+        "/dls/science/groups/i04-1/elliot-dev/"
+        "NUDT5_occupancy/after_allocated_residues_26_05_20.pkl"
     )
 
     nudt5_master_tidied_df = pd.read_csv(nudt5_master_tidied_path)
@@ -320,60 +366,69 @@ if __name__ == "__main__":
         data_dir + nudt5_master_tidied_df["crystal_id"] + "/refine.pdb"
     )
 
-    nudt5_master_tidied_df["refine_pdb_exists"] = nudt5_master_tidied_df[
-        "refine_pdb"
-    ].apply(os.path.exists)
-
-    # produce usable columns from site information
-    for col in nudt5_master_tidied_df.columns.values:
-        if "in pdb file" in col.lower():
-            chain_col = "chain_" + col.split()[-1]
-            nudt5_master_tidied_df[chain_col] = nudt5_master_tidied_df[col].apply(
-                drop_left
-            )
-
-        if "position in the crystal" in col.lower():
-
-            # column names
-            res_chain = "residue_chain_" + col.split()[-1]
-            res_chain_1 = "residue_1_chain_" + col.split()[-1]
-            res = "residue_" + col.split()[-1]
-            res_1 = "residue_1_" + col.split()[-1]
-
-            # get chain of first residue listed
-            nudt5_master_tidied_df[res_chain] = nudt5_master_tidied_df[col].apply(
-                split_residue_info_left_chain
-            )
-            # get chain of second residue listed
-            nudt5_master_tidied_df[res_chain_1] = nudt5_master_tidied_df[col].apply(
-                split_residue_info_right_chain
-            )
-            # get residue name and number of first residue listed
-            nudt5_master_tidied_df[res] = nudt5_master_tidied_df[col].apply(
-                split_residue_info_left
-            )
-            # get residue name and number of second residue listed
-            nudt5_master_tidied_df[res_1] = nudt5_master_tidied_df[col].apply(
-                split_residue_info_right
-            )
-
-    # get residues close to ligands
-    nudt5_master_tidied_df["nearby_residues"] = nudt5_master_tidied_df[
-        "refine_pdb"
-    ].apply(within_5)
-
-    # match residues that are close to named site
-    nudt5_master_tidied_df[
-        ["allocated_1", "allocated_2", "allocated_3", "allocated_4", "unallocated"]
-    ] = nudt5_master_tidied_df.apply(match_residues, axis=1)
-
-    #
-    sel = allocated_res_to_sel(nudt5_master_tidied_df.iloc[0]['allocated_1'])
-    print(sel)
-    print(nudt5_master_tidied_df.iloc[0]['refine_pdb'])
-    print(read_occupancy_b(nudt5_master_tidied_df.iloc[0]['refine_pdb'], sel))
 
 
-    nudt5_master_tidied_df.to_csv(
-        "/dls/science/groups/i04-1/elliot-dev/NUDT5_occupancy/testA.csv"
-    )
+    if not os.path.isfile(pickle_path):
+        # add boolean column to check refine_pdb exists
+        nudt5_master_tidied_df["refine_pdb_exists"] = nudt5_master_tidied_df[
+            "refine_pdb"
+        ].apply(os.path.exists)
+
+        # produce usable columns from site information
+        for col in nudt5_master_tidied_df.columns.values:
+            if "in pdb file" in col.lower():
+                chain_col = "chain_" + col.split()[-1]
+                nudt5_master_tidied_df[chain_col] = nudt5_master_tidied_df[col].apply(
+                    drop_left
+                )
+
+            if "position in the crystal" in col.lower():
+
+                # column names
+                res_chain = "residue_chain_" + col.split()[-1]
+                res_chain_1 = "residue_1_chain_" + col.split()[-1]
+                res = "residue_" + col.split()[-1]
+                res_1 = "residue_1_" + col.split()[-1]
+
+                # get chain of first residue listed
+                nudt5_master_tidied_df[res_chain] = nudt5_master_tidied_df[col].apply(
+                    split_residue_info_left_chain
+                )
+                # get chain of second residue listed
+                nudt5_master_tidied_df[res_chain_1] = nudt5_master_tidied_df[col].apply(
+                    split_residue_info_right_chain
+                )
+                # get residue name and number of first residue listed
+                nudt5_master_tidied_df[res] = nudt5_master_tidied_df[col].apply(
+                    split_residue_info_left
+                )
+                # get residue name and number of second residue listed
+                nudt5_master_tidied_df[res_1] = nudt5_master_tidied_df[col].apply(
+                    split_residue_info_right
+                )
+
+        # get residues close to ligands
+        nudt5_master_tidied_df["nearby_residues"] = nudt5_master_tidied_df[
+            "refine_pdb"
+        ].apply(within_5)
+
+        # match residues that are close to named site
+        nudt5_master_tidied_df[
+            ["allocated_1", "allocated_2", "allocated_3", "allocated_4", "unallocated"]
+        ] = nudt5_master_tidied_df.apply(match_residues, axis=1)
+
+        # get occupancy and b factor df, mean and std deviation
+        # for nearby residues in allocated groups
+        nudt5_master_tidied_df[
+            ["allocated_1_occ_b_df","allocated_1_occ_b_mean", "allocated_1_occ_b_std_dev",
+             "allocated_2_occ_b_df","allocated_2_occ_b_mean", "allocated_2_occ_b_std_dev",
+             "allocated_3_occ_b_df","allocated_3_occ_b_mean", "allocated_3_occ_b_std_dev",
+             "allocated_4_occ_b_df","allocated_4_occ_b_mean", "allocated_4_occ_b_std_dev"]
+        ] = nudt5_master_tidied_df.apply(allocated_occ_b_from_row, axis=1)
+
+        with open(pickle_path, 'wb') as pickle_output:
+            pickle.dump(nudt5_master_tidied_df, pickle_output)
+    else:
+        with open(pickle_path, 'r') as pickle_output:
+            nudt5_master_tidied_df = pickle.load(pickle_output)
+
