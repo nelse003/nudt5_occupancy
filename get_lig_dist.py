@@ -15,8 +15,6 @@ from numpy.polynomial.polynomial import polyfit
 import matplotlib.pyplot as plt
 
 
-
-
 def match_residues(row):
 
     nearby_residue = row["nearby_residues"]
@@ -840,6 +838,7 @@ if __name__ == "__main__":
     # TODO ~ 20 folders which are not refining to investigate
     # nudt5_master_tidied_df.apply(refine_b_factor_site_fixed, axis=1)
 
+    # TODO Run this only when files exists?
     nudt5_master_tidied_df["site_fixed_lig"] = (
         nudt5_master_tidied_df["site_b_factor_path"]
         .apply(read_occupancy_b, selection="resname LIG")
